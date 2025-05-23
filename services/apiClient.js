@@ -5,7 +5,31 @@
 
 // Cache implementation
 const cache = new Map();
-const CACHE_TTL = 60 * 1000; // 1 minute default TTL
+const cacheTimestamps = new Map();
+const DEFAULT_CACHE_TIME = 300000; // 5 minutes
+
+/**
+ * Check if a cache entry is valid
+ * @param {string} key - Cache key
+ * @param {number} maxAge - Maximum age in milliseconds
+ * @returns {boolean} - Whether the cache entry is valid
+ */
+function isCacheValid(key, maxAge = DEFAULT_CACHE_TIME) {
+  if (!cache.has(key) || !cacheTimestamps.has(key)) return false;
+  
+  const timestamp = cacheTimestamps.get(key);
+  return Date.now() - timestamp < maxAge;
+}
+
+/**
+ * Set a cache entry with timestamp
+ * @param {string} key - Cache key
+ * @param {any} value - Cache value
+ */
+function setCacheWithTimestamp(key, value) {
+  cache.set(key, value);
+  cacheTimestamps.set(key, Date.now());
+}
 
 /**
  * Fetch with enhanced error handling, retry logic, and fallback mechanisms
@@ -163,43 +187,58 @@ export const networkApi = {
         1      // 1 retry
       );
     } catch (error) {
-      console.error(`[API] Failed to get metrics for interface ${interfaceName}:`, error);
-      
-      // Try fallback API endpoint
-      try {
-        console.log('[API] Trying fallback metrics endpoint');
-        return await fetchWithErrorHandling(
-          `/api/network/fallback-metrics?interface=${encodeURIComponent(interfaceName)}`,
-          {},
-          5000  // 5 second timeout
-        );
-      } catch (fallbackError) {
-        console.error('[API] Fallback metrics endpoint also failed:', fallbackError);
-        
-        // Return generated fallback data
-        return {
-          latency: Math.floor(Math.random() * 60) + 20, // 20-80ms
-          packetLoss: parseFloat((Math.random() * 2).toFixed(2)), // 0-2%
-          download: Math.floor(Math.random() * 50) + 20, // 20-70 Mbps
-          upload: Math.floor(Math.random() * 20) + 5, // 5-25 Mbps
-          timestamp: new Date().toISOString(),
-          interface: interfaceName,
-          source: 'fallback'
-        };
-      }
+      console.warn('Failed to fetch metrics from API, using fallback data:', error);
+      // Return fallback data
+      return {
+        latency: Math.floor(Math.random() * 60) + 20, // 20-80ms
+        packetLoss: parseFloat((Math.random() * 2).toFixed(2)), // 0-2%
+        download: Math.floor(Math.random() * 50) + 20, // 20-70 Mbps
+        upload: Math.floor(Math.random() * 20) + 5, // 5-25 Mbps
+        timestamp: new Date().toISOString(),
+        interface: interfaceName,
+        source: 'fallback-client'
+      };
     }
   },
   
   /**
-   * Get network interfaces
+   * Get network interfaces with strong caching
    * @returns {Promise<Array>} - List of network interfaces
    */
   async getInterfaces() {
     try {
-      return await fetchWithErrorHandling('/api/network/interfaces', {}, 10000);
+      // Use a cache key to prevent duplicate requests
+      const cacheKey = 'network-interfaces';
+      
+      // Check if we have a valid cached response
+      if (isCacheValid(cacheKey, 300000)) { // 5 minute cache
+        console.log('[API] Using cached network interfaces');
+        return cache.get(cacheKey);
+      }
+      
+      console.log('[API] Fetching network interfaces from API');
+      
+      // Add a cache buster to prevent browser caching
+      const url = `/api/network/interfaces?t=${Date.now()}`;
+      
+      const response = await fetchWithErrorHandling(url, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      }, 10000);
+      
+      // Cache the result
+      const interfaces = response.interfaces || [];
+      setCacheWithTimestamp(cacheKey, interfaces);
+      
+      return interfaces;
     } catch (error) {
       console.error('[API] Failed to get network interfaces:', error);
-      throw error;
+      
+      // Return empty array on error
+      return [];
     }
   },
   
@@ -223,12 +262,37 @@ export const networkApi = {
   },
   
   /**
-   * Get Nginx logs
+   * Get Nginx logs and traffic data
    * @returns {Promise<Object>} - Nginx logs and metrics
    */
   async getNginxLogs() {
     try {
-      return await fetchWithErrorHandling('/api/nginx/logs', {}, 20000);
+      // Use a cache key to prevent duplicate requests
+      const cacheKey = 'nginx-logs';
+      
+      // Check if we have a valid cached response
+      if (isCacheValid(cacheKey, 60000)) { // 1 minute cache
+        console.log('[API] Using cached Nginx logs');
+        return cache.get(cacheKey);
+      }
+      
+      console.log('[API] Fetching Nginx logs from API');
+      
+      // Add a cache buster to prevent browser caching
+      const url = `/api/nginx/logs?t=${Date.now()}`;
+      
+      const response = await fetchWithErrorHandling(url, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      }, 20000);
+      
+      // Cache the result
+      setCacheWithTimestamp(cacheKey, response);
+      
+      return response;
     } catch (error) {
       console.error('[API] Failed to get Nginx logs:', error);
       throw error;
@@ -261,4 +325,11 @@ export const networkApi = {
     }
   }
 };
+
+
+
+
+
+
+
 

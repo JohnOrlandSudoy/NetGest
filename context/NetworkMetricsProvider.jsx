@@ -1,13 +1,12 @@
 'use client';
 
-import React, { createContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useCallback, useRef } from 'react';
+import { subscribeToNetworkMetrics, getCurrentNetworkMetrics, cleanup } from '@/services/networkMetricsService';
 
-// Create the NetworkMetricsContext
-export const NetworkMetricsContext = createContext();
+export const NetworkMetricsContext = createContext({});
 
-// Create the NetworkMetricsProvider component
 export const NetworkMetricsProvider = ({ children }) => {
-  // State for network metrics
+  // Network interfaces state
   const [selectedInterface, setSelectedInterface] = useState('');
   const [interfaces, setInterfaces] = useState([]);
   const [avgPacketLoss, setAvgPacketLoss] = useState(0);

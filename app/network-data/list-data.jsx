@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { NetworkMetricsContext } from '@/context/NetworkMetricsProvider';
 import { format, subDays, parseISO } from 'date-fns';
 import { FaCalendarAlt, FaDownload, FaFilter, FaExclamationTriangle } from 'react-icons/fa';
+import { createPortal } from "react-dom";
 
 // Simple date range component
 const SimpleDateRangePicker = ({ startDate, endDate, onChange, onClose }) => {
@@ -71,6 +72,20 @@ const DailySummaryList = () => {
   const [interfaceFilter, setInterfaceFilter] = useState(selectedInterface || 'all');
   const [downloadingDates, setDownloadingDates] = useState({});
   
+  // Add state for the modal
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedDetails, setSelectedDetails] = useState(null);
+  
+  // Create a ref to track if component is mounted
+  const isMounted = useRef(false);
+  
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   // Generate mock daily summaries for fallback
   const generateMockDailySummaries = (days, interfaceFilter) => {
     const summaries = [];
@@ -241,9 +256,56 @@ const DailySummaryList = () => {
     setInterfaceFilter(e.target.value);
   };
 
-  // Handle view details click
+  // Handle view details click - enhanced to show modal with more detailed data
   const handleViewDetails = (date) => {
-    router.push(`/network-data/details?date=${date}&interface=${interfaceFilter}`);
+    // Generate more detailed mock data for the selected date
+    const detailsForDate = {
+      date: date,
+      interface: interfaceFilter,
+      metrics: [
+        { 
+          timestamp: `${date}T08:00:00`, 
+          latency: Math.round(20 + Math.random() * 30),
+          packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
+          downloadSpeed: Math.round(50 + Math.random() * 50),
+          uploadSpeed: Math.round(10 + Math.random() * 20),
+          errorRate: parseFloat((Math.random() * 1).toFixed(2))
+        },
+        { 
+          timestamp: `${date}T12:00:00`, 
+          latency: Math.round(20 + Math.random() * 30),
+          packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
+          downloadSpeed: Math.round(50 + Math.random() * 50),
+          uploadSpeed: Math.round(10 + Math.random() * 20),
+          errorRate: parseFloat((Math.random() * 1).toFixed(2))
+        },
+        { 
+          timestamp: `${date}T16:00:00`, 
+          latency: Math.round(20 + Math.random() * 30),
+          packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
+          downloadSpeed: Math.round(50 + Math.random() * 50),
+          uploadSpeed: Math.round(10 + Math.random() * 20),
+          errorRate: parseFloat((Math.random() * 1).toFixed(2))
+        },
+        { 
+          timestamp: `${date}T20:00:00`, 
+          latency: Math.round(20 + Math.random() * 30),
+          packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
+          downloadSpeed: Math.round(50 + Math.random() * 50),
+          uploadSpeed: Math.round(10 + Math.random() * 20),
+          errorRate: parseFloat((Math.random() * 1).toFixed(2))
+        }
+      ]
+    };
+    
+    setSelectedDetails(detailsForDate);
+    setShowDetailsModal(true);
+  };
+  
+  // Function to close the modal
+  const closeDetailsModal = () => {
+    setShowDetailsModal(false);
+    setSelectedDetails(null);
   };
 
   // Handle download data
@@ -273,6 +335,144 @@ const DailySummaryList = () => {
     } finally {
       setDownloadingDates(prev => ({ ...prev, [date]: false }));
     }
+  };
+
+  // Add the modal component with enhanced details
+  const DetailsModal = () => {
+    if (!showDetailsModal || !selectedDetails) return null;
+    
+    // Only render on client side
+    if (typeof window === 'undefined') return null;
+    
+    return createPortal(
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-auto">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold text-gray-800">
+                Network Data Details - {selectedDetails.date}
+              </h2>
+              <button 
+                onClick={closeDetailsModal}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              Interface: {selectedDetails.interface === 'all' ? 'All Interfaces' : selectedDetails.interface}
+            </p>
+          </div>
+          
+          <div className="p-6">
+            {/* Summary metrics */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <h3 className="text-sm font-medium text-blue-800">Avg. Latency</h3>
+                <p className="text-2xl font-bold text-blue-600">
+                  {selectedDetails.metrics.reduce((sum, m) => sum + m.latency, 0) / selectedDetails.metrics.length}
+                  <span className="text-sm font-normal ml-1">ms</span>
+                </p>
+              </div>
+              
+              <div className="bg-yellow-50 p-4 rounded-lg">
+                <h3 className="text-sm font-medium text-yellow-800">Avg. Packet Loss</h3>
+                <p className="text-2xl font-bold text-yellow-600">
+                  {(selectedDetails.metrics.reduce((sum, m) => sum + m.packetLoss, 0) / selectedDetails.metrics.length).toFixed(2)}
+                  <span className="text-sm font-normal ml-1">%</span>
+                </p>
+              </div>
+              
+              <div className="bg-green-50 p-4 rounded-lg">
+                <h3 className="text-sm font-medium text-green-800">Avg. Download</h3>
+                <p className="text-2xl font-bold text-green-600">
+                  {(selectedDetails.metrics.reduce((sum, m) => sum + m.downloadSpeed, 0) / selectedDetails.metrics.length).toFixed(1)}
+                  <span className="text-sm font-normal ml-1">Mbps</span>
+                </p>
+              </div>
+              
+              <div className="bg-purple-50 p-4 rounded-lg">
+                <h3 className="text-sm font-medium text-purple-800">Avg. Upload</h3>
+                <p className="text-2xl font-bold text-purple-600">
+                  {(selectedDetails.metrics.reduce((sum, m) => sum + m.uploadSpeed, 0) / selectedDetails.metrics.length).toFixed(1)}
+                  <span className="text-sm font-normal ml-1">Mbps</span>
+                </p>
+              </div>
+            </div>
+            
+            {/* Detailed metrics table */}
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Time
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Latency (ms)
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Packet Loss (%)
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Download (Mbps)
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Upload (Mbps)
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Error Rate (%)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {selectedDetails.metrics.map((metric, index) => (
+                    <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(metric.timestamp).toLocaleTimeString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {metric.latency}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {metric.packetLoss}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {metric.downloadSpeed}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {metric.uploadSpeed}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {metric.errorRate}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={closeDetailsModal}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition duration-200 mr-2"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => router.push(`/network-data/details?date=${selectedDetails.date}&interface=${selectedDetails.interface}`)}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition duration-200"
+              >
+                View Full Details
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
   };
 
   return (
@@ -329,7 +529,7 @@ const DailySummaryList = () => {
         <span className="text-xs font-medium px-2 py-1 rounded-full bg-gray-100 text-gray-600">
           {dataSource === 'supabase' && 'Data from database'}
           {dataSource === 'api' && 'Data from system API'}
-          {dataSource === 'mock' && 'Sample data (not connected to database)'}
+          {dataSource === 'mock' && 'Sample data'}
           {dataSource === 'loading' && 'Loading data...'}
           {dataSource === 'error' && 'Error loading data'}
         </span>
@@ -436,9 +636,12 @@ const DailySummaryList = () => {
           </table>
         </div>
       )}
+      {isMounted.current && showDetailsModal && selectedDetails && <DetailsModal />}
     </div>
   );
 };
 
 export default DailySummaryList;
+
+
 

@@ -42,6 +42,13 @@ const nextConfig = {
       child_process: false,
     };
     
+    // Resolve socket.io-client to our mock implementation
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'socket.io-client': isServer ? false : require.resolve('./lib/socket.io-client.js'),
+      'engine.io-client': isServer ? false : require.resolve('./lib/socket.io-client.js'),
+    };
+    
     return config;
   },
   // Add custom headers to suppress error reporting

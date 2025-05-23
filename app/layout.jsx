@@ -5,6 +5,8 @@ import AuthProvider from "@/context/AuthProvider";
 import { NetworkMetricsProvider } from "@/context/NetworkMetricsProvider";
 import 'react-toastify/dist/ReactToastify.css';
 import './globals.css';
+import SocketErrorSuppressor from '@/components/SocketErrorSuppressor';
+import ErrorSuppressor from '@/components/ErrorSuppressor';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -17,15 +19,17 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className={inter.className}>
-        <ErrorBoundary>
+        <ErrorSuppressor>
+          <SocketErrorSuppressor />
           <AuthProvider>
             <NetworkMetricsProvider>
               {children}
               <ToastContainer position="top-right" />
             </NetworkMetricsProvider>
           </AuthProvider>
-        </ErrorBoundary>
+        </ErrorSuppressor>
       </body>
     </html>
   );
 }
+

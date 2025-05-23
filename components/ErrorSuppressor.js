@@ -85,14 +85,27 @@ const ErrorSuppressor = ({ children }) => {
       'NetworkError',
       'initialization error',
       'Error fetching packets',
-      'Error in fetchPacketCount'
+      'Error in fetchPacketCount',
+      'xhr poll error',
+      'socket.io',
+      'engine.io',
+      'websocket'
     ];
     
-    // Override console.error to completely suppress all errors
-    console.error = function() {
-      // Don't output anything to the console
-      // This completely silences all errors
-      return;
+    // Override console.error to filter out specific errors
+    console.error = function(...args) {
+      // Check if this is an error we want to suppress
+      if (args.length > 0 && typeof args[0] === 'string') {
+        for (const suppressedMessage of suppressedErrorMessages) {
+          if (args[0].includes(suppressedMessage)) {
+            // Suppress this error
+            return;
+          }
+        }
+      }
+      
+      // Pass through other errors
+      originalConsoleError.apply(console, args);
     };
     
     // Also intercept console.warn to completely suppress all warnings
@@ -105,36 +118,62 @@ const ErrorSuppressor = ({ children }) => {
     // Also intercept window.onerror to prevent error dialogs
     const originalOnError = window.onerror;
     window.onerror = function(message, source, lineno, colno, error) {
-      // Prevent the error from being shown
-      return true;
+      // Check if this is a socket.io error
+      if (
+        typeof message === 'string' && 
+        (
+          message.includes('xhr poll error') ||
+          message.includes('socket.io') ||
+          message.includes('engine.io') ||
+          source?.includes('socket.io') ||
+          source?.includes('engine.io')
+        )
+      ) {
+        // Prevent the error from being shown
+        return true;
+      }
+      
+      // Let other errors pass through
+      if (originalOnError) {
+        return originalOnError(message, source, lineno, colno, error);
+      }
+      
+      return false;
     };
     
     // Intercept unhandled promise rejections
     const originalOnUnhandledRejection = window.onunhandledrejection;
     window.onunhandledrejection = function(event) {
-      // Prevent the rejection from being shown
-      event.preventDefault();
-      return true;
+      // Check if this is a socket.io error
+      if (
+        event.reason && 
+        (
+          (typeof event.reason.message === 'string' && 
+           (
+             event.reason.message.includes('xhr poll error') ||
+             event.reason.message.includes('socket.io') ||
+             event.reason.message.includes('engine.io')
+           )
+          ) ||
+          (typeof event.reason === 'string' && 
+           (
+             event.reason.includes('xhr poll error') ||
+             event.reason.includes('socket.io') ||
+             event.reason.includes('engine.io')
+           )
+          )
+        )
+      ) {
+        // Prevent the rejection from being shown
+        event.preventDefault();
+        return true;
+      }
+      
+      // Let other rejections pass through
+      if (originalOnUnhandledRejection) {
+        return originalOnUnhandledRejection(event);
+      }
     };
-    
-    // Also try to intercept React's error boundary
-    if (typeof window !== 'undefined' && window.React) {
-      const originalConsoleError = console.error;
-      console.error = function(...args) {
-        // Check if this is a React error boundary error
-        if (
-          args.length > 0 &&
-          typeof args[0] === 'string' &&
-          args[0].includes('React will try to recreate this component tree')
-        ) {
-          // Suppress React error boundary errors
-          return;
-        }
-        
-        // Otherwise, call the original
-        originalConsoleError.apply(console, args);
-      };
-    }
     
     // Cleanup function to restore original console methods
     return () => {
