@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "jest"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",
@@ -36,6 +37,8 @@
     "react-table": "^7.8.0",
     "react-toastify": "^10.0.6",
     "round-to": "^6.0.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "speed-test": "^3.0.0",
     "speedtest-net": "^2.2.0",
     "use-async-effect": "^2.2.7",
@@ -43,7 +46,12 @@
     "yup": "^1.4.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
     "postcss": "^8",
+    "tailwind-scrollbar": "^3.0.0",
     "tailwindcss": "^3.4.1"
   },
   "overrides": {

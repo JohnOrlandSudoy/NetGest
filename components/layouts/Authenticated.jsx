@@ -10,11 +10,24 @@ import Image from "next/image";
 import { FaBars, FaTimes, FaUser, FaSignOutAlt, FaUserEdit } from "react-icons/fa";
 
 const Authenticated = ({ children, title }) => {
-    const { userDetails } = useContext(AuthContext);
+    // Add a null check for AuthContext
+    const context = useContext(AuthContext);
+    const userDetails = context?.userDetails || {};
+    const authLoading = context?.loading || false;
+    
     const router = useRouter();
     const [profileDropdown, setProfileDropdown] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
+
+    // Show loading state while checking auth
+    if (authLoading) {
+        return (
+            <div className="flex justify-center items-center h-screen bg-gray-100">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+            </div>
+        );
+    }
 
     // Check if we're on mobile
     useEffect(() => {
@@ -89,7 +102,7 @@ const Authenticated = ({ children, title }) => {
     return (
         <div className="flex flex-col h-screen bg-gray-100">
             {/* Top Navigation Bar */}
-            <header className="bg-white border-b border-gray-200 shadow-sm z-30">
+            <header className="bg-white border-b border-gray-200 shadow-sm z-30" role="banner">
                 <div className="px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
                         {/* Left side - Logo and menu toggle */}
@@ -206,11 +219,17 @@ const Authenticated = ({ children, title }) => {
                 {/* Sidebar - conditionally rendered based on state */}
                 <div 
                     id="sidebar"
-                    className={`${
-                        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-                    } fixed inset-y-0 left-0 z-40 w-64 bg-sky-700 transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-auto lg:h-full`}
+                    className={`
+                        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
+                        fixed inset-y-0 left-0 z-40 w-64 bg-sky-700 
+                        transition-transform duration-300 ease-in-out 
+                        lg:translate-x-0 lg:static lg:inset-auto lg:h-full
+                        overflow-hidden
+                    `}
+                    role="navigation"
+                    aria-label="Main Navigation"
                 >
-                    <div className="h-full flex flex-col overflow-y-auto">
+                    <div className="h-full flex flex-col">
                         {/* Mobile close button */}
                         <div className="flex items-center justify-between px-4 pt-5 pb-2 lg:hidden">
                             <div className="flex-shrink-0">
@@ -224,23 +243,37 @@ const Authenticated = ({ children, title }) => {
                             </div>
                             <button
                                 type="button"
-                                className="text-white hover:text-gray-200 focus:outline-none"
+                                className="text-white hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 rounded"
                                 onClick={() => setSidebarOpen(false)}
+                                aria-label="Close sidebar"
                             >
                                 <span className="sr-only">Close sidebar</span>
                                 <FaTimes className="h-6 w-6" />
                             </button>
                         </div>
                         
-                        {/* Sidebar content */}
-                        <div className="flex-1 px-4 py-6">
+                        {/* Sidebar content with custom scrolling */}
+                        <div className="flex-1 px-3 py-4 overflow-y-auto custom-scrollbar">
                             <SideBar closeMobileSidebar={() => isMobile && setSidebarOpen(false)} />
+                        </div>
+                        
+                        {/* Optional: Add a footer section to the sidebar */}
+                        <div className="px-3 py-3 border-t border-sky-800 mt-auto hidden lg:block">
+                            <div className="flex items-center text-white text-xs opacity-75">
+                                <span>NetGest v1.0</span>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 {/* Main content */}
-                <main className="flex-1 overflow-y-auto bg-gray-100">
+                <main 
+                    className="flex-1 overflow-y-auto bg-gray-100"
+                    id="main-content"
+                    role="main"
+                    aria-labelledby={title ? "page-title" : undefined}
+                >
+                    {title && <h1 id="page-title" className="sr-only">{title}</h1>}
                     <div className="py-6 px-4 sm:px-6 lg:px-8">
                         {children}
                     </div>

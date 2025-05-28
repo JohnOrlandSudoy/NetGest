@@ -1,14 +1,15 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { FaNetworkWired, FaExclamationTriangle, FaClock, FaTachometerAlt } from 'react-icons/fa';
+import { FaNetworkWired, FaExclamationTriangle, FaClock, FaTachometerAlt, FaSync } from 'react-icons/fa';
 
 const DailySummaryCards = ({ 
     packetLoss = 0, 
     latency = 0, 
     downloadSpeed = 0,
     uploadSpeed = 0,
-    isLoading = false
+    isLoading = false,
+    isRealtime = false
 }) => {
     const [forceLoaded, setForceLoaded] = useState(false);
     
@@ -66,11 +67,19 @@ const DailySummaryCards = ({
                 {metrics.map((metric, index) => (
                     <div 
                         key={index} 
-                        className={`rounded-lg border ${metric.color} p-4 shadow-sm transition-all hover:shadow-md`}
+                        className={`rounded-lg border ${metric.color} p-4 shadow-sm transition-all hover:shadow-md ${isRealtime ? 'border-l-4' : ''}`}
                     >
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm font-medium text-gray-500">{metric.title}</p>
+                                <div className="flex items-center">
+                                    <p className="text-sm font-medium text-gray-500">{metric.title}</p>
+                                    {isRealtime && (
+                                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                            <FaSync className="mr-1 h-2 w-2 animate-spin" />
+                                            Live
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="mt-1">
                                     {showLoading ? (
                                         <div className="h-8 w-24 bg-gray-200 animate-pulse rounded"></div>
@@ -94,6 +103,7 @@ const DailySummaryCards = ({
 };
 
 export default DailySummaryCards;
+
 
 
 

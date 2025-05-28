@@ -12,10 +12,13 @@ module.exports = {
         foreground: "var(--foreground)",
       },
       fontFamily: {
-        'poppins': ['Poppins'],
-        'Mohave': ['Mohave'],
+        sans: ['var(--font-inter)'],
+        poppins: ['var(--font-poppins)'],
+        mohave: ['var(--font-mohave)'],
       },
     },
   },
-  plugins: [],
+  plugins: [
+    require('tailwind-scrollbar')({ nocompatible: true }), // Add nocompatible option for Tailwind CSS v3.x
+  ],
 };

@@ -1,9 +1,138 @@
+'use client';
+
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { NetworkMetricsContext } from '@/context/NetworkMetricsProvider';
+import NetworkStateManager from '@/services/state/NetworkStateManager';
 import { format, subDays, parseISO } from 'date-fns';
 import { FaCalendarAlt, FaDownload, FaFilter, FaExclamationTriangle } from 'react-icons/fa';
 import { createPortal } from "react-dom";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
+
+// Register ChartJS components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
+
+// Add these constants at the top of the file, after imports
+const STORAGE_KEYS = {
+  PACKET_LOSS: 'network_metrics_packet_loss',
+  LATENCY: 'network_metrics_latency',
+  DOWNLOAD: 'network_metrics_download',
+  UPLOAD: 'network_metrics_upload'
+};
+
+// Add these helper functions after the constants
+const getStoredData = (key) => {
+  if (typeof window === 'undefined') return [];
+  const data = localStorage.getItem(key);
+  return data ? JSON.parse(data) : [];
+};
+
+const saveData = (key, value) => {
+  if (typeof window === 'undefined') return;
+  const data = getStoredData(key);
+  const newData = [...data, { timestamp: new Date().toISOString(), value }];
+  // Keep only last 1000 entries
+  const trimmedData = newData.slice(-1000);
+  localStorage.setItem(key, JSON.stringify(trimmedData));
+};
+
+// Add enhanced storage manager
+const StorageManager = {
+  // BOM storage keys
+  BOM_KEYS: {
+    METRICS: 'network_metrics_bom',
+    TRAFFIC: 'network_traffic_bom',
+    HISTORY: 'network_history_bom'
+  },
+
+  // Save metrics with BOM
+  saveMetricsWithBOM: (metrics) => {
+    if (typeof window === 'undefined') return;
+    const data = JSON.stringify(metrics);
+    localStorage.setItem(StorageManager.BOM_KEYS.METRICS, data);
+  },
+
+  // Get metrics with BOM
+  getMetricsWithBOM: () => {
+    if (typeof window === 'undefined') return null;
+    const data = localStorage.getItem(StorageManager.BOM_KEYS.METRICS);
+    if (!data) return null;
+    try {
+      return JSON.parse(data);
+    } catch (error) {
+      console.error('Error parsing metrics data:', error);
+      return null;
+    }
+  },
+
+  // Save traffic data with BOM
+  saveTrafficWithBOM: (trafficData) => {
+    if (typeof window === 'undefined') return;
+    const data = JSON.stringify(trafficData);
+    localStorage.setItem(StorageManager.BOM_KEYS.TRAFFIC, data);
+  },
+
+  // Get traffic data with BOM
+  getTrafficWithBOM: () => {
+    if (typeof window === 'undefined') return null;
+    const data = localStorage.getItem(StorageManager.BOM_KEYS.TRAFFIC);
+    if (!data) return null;
+    try {
+      return JSON.parse(data);
+    } catch (error) {
+      console.error('Error parsing traffic data:', error);
+      return null;
+    }
+  },
+
+  // Save history with BOM
+  saveHistoryWithBOM: (history) => {
+    if (typeof window === 'undefined') return;
+    const data = JSON.stringify(history);
+    localStorage.setItem(StorageManager.BOM_KEYS.HISTORY, data);
+  },
+
+  // Get history with BOM
+  getHistoryWithBOM: () => {
+    if (typeof window === 'undefined') return [];
+    const data = localStorage.getItem(StorageManager.BOM_KEYS.HISTORY);
+    if (!data) return [];
+    try {
+      return JSON.parse(data);
+    } catch (error) {
+      console.error('Error parsing history data:', error);
+      return [];
+    }
+  },
+
+  // Clear all data
+  clearAllData: () => {
+    if (typeof window === 'undefined') return;
+    Object.values(StorageManager.BOM_KEYS).forEach(key => {
+      localStorage.removeItem(key);
+    });
+  }
+};
 
 // Simple date range component
 const SimpleDateRangePicker = ({ startDate, endDate, onChange, onClose }) => {
@@ -57,28 +186,255 @@ const SimpleDateRangePicker = ({ startDate, endDate, onChange, onClose }) => {
 // Use the simple date picker directly
 const DateRangePicker = SimpleDateRangePicker;
 
+// Add new chart configuration
+const chartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      position: 'top',
+    },
+    title: {
+      display: true,
+      text: 'Network Metrics History',
+    },
+  },
+  scales: {
+    y: {
+      beginAtZero: true,
+    },
+  },
+  interaction: {
+    mode: 'index',
+    intersect: false,
+  },
+};
+
+// Add new chart component
+const MetricsChart = ({ data = [], type }) => {
+  // Ensure data is an array and has valid timestamps
+  const validData = data.filter(item => item && item.timestamp);
+  
+  const chartData = {
+    labels: validData.map(item => {
+      try {
+        return format(parseISO(item.timestamp), 'HH:mm:ss');
+      } catch (error) {
+        console.error('Error parsing timestamp:', error);
+        return 'Invalid Time';
+      }
+    }),
+    datasets: [
+      {
+        label: type === 'speed' ? 'Download Speed' : type === 'latency' ? 'Latency' : 'Packet Loss',
+        data: validData.map(item => {
+          if (type === 'speed') return item.metrics?.downloadSpeed || 0;
+          if (type === 'latency') return item.metrics?.avgLatency || 0;
+          return item.metrics?.avgPacketLoss || 0;
+        }),
+        borderColor: type === 'speed' ? 'rgb(75, 192, 192)' : 
+                    type === 'latency' ? 'rgb(255, 159, 64)' : 
+                    'rgb(255, 99, 132)',
+        backgroundColor: type === 'speed' ? 'rgba(75, 192, 192, 0.5)' : 
+                        type === 'latency' ? 'rgba(255, 159, 64, 0.5)' : 
+                        'rgba(255, 99, 132, 0.5)',
+        fill: true,
+        tension: 0.4,
+      },
+    ],
+  };
+
+  // If no valid data, show empty chart
+  if (validData.length === 0) {
+    return (
+      <div className="h-64 w-full flex items-center justify-center bg-gray-50 rounded-lg">
+        <p className="text-gray-500">No data available for visualization</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-64 w-full">
+      <Line options={chartOptions} data={chartData} />
+    </div>
+  );
+};
+
+// Add new chart component for combined metrics
+const CombinedMetricsChart = ({ data = [] }) => {
+  // Ensure data is an array and has valid timestamps
+  const validData = data.filter(item => item && item.timestamp);
+  
+  const chartData = {
+    labels: validData.map(item => {
+      try {
+        return format(parseISO(item.timestamp), 'HH:mm:ss');
+      } catch (error) {
+        console.error('Error parsing timestamp:', error);
+        return 'Invalid Time';
+      }
+    }),
+    datasets: [
+      {
+        label: 'Download Speed (Mbps)',
+        data: validData.map(item => item.metrics?.downloadSpeed || 0),
+        borderColor: 'rgb(75, 192, 192)',
+        backgroundColor: 'rgba(75, 192, 192, 0.5)',
+        yAxisID: 'y',
+        fill: true,
+        tension: 0.4,
+      },
+      {
+        label: 'Latency (ms)',
+        data: validData.map(item => item.metrics?.avgLatency || 0),
+        borderColor: 'rgb(255, 159, 64)',
+        backgroundColor: 'rgba(255, 159, 64, 0.5)',
+        yAxisID: 'y1',
+        fill: true,
+        tension: 0.4,
+      },
+      {
+        label: 'Packet Loss (%)',
+        data: validData.map(item => item.metrics?.avgPacketLoss || 0),
+        borderColor: 'rgb(255, 99, 132)',
+        backgroundColor: 'rgba(255, 99, 132, 0.5)',
+        yAxisID: 'y2',
+        fill: true,
+        tension: 0.4,
+      },
+    ],
+  };
+
+  const combinedOptions = {
+    ...chartOptions,
+    scales: {
+      y: {
+        type: 'linear',
+        display: true,
+        position: 'left',
+        title: {
+          display: true,
+          text: 'Speed (Mbps)',
+        },
+      },
+      y1: {
+        type: 'linear',
+        display: true,
+        position: 'right',
+        title: {
+          display: true,
+          text: 'Latency (ms)',
+        },
+        grid: {
+          drawOnChartArea: false,
+        },
+      },
+      y2: {
+        type: 'linear',
+        display: true,
+        position: 'right',
+        title: {
+          display: true,
+          text: 'Packet Loss (%)',
+        },
+        grid: {
+          drawOnChartArea: false,
+        },
+      },
+    },
+  };
+
+  // If no valid data, show empty chart
+  if (validData.length === 0) {
+    return (
+      <div className="h-96 w-full flex items-center justify-center bg-gray-50 rounded-lg">
+        <p className="text-gray-500">No data available for visualization</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-96 w-full">
+      <Line options={combinedOptions} data={chartData} />
+    </div>
+  );
+};
+
+// Add debug utility at the top of the file
+const DEBUG = process.env.NODE_ENV === 'development';
+
+const debugLog = (message, data) => {
+  if (DEBUG) {
+    console.log(`[DEBUG] ${message}`, data);
+  }
+};
+
+// Add date utility functions
+const getDateRange = () => {
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - 14);
+  return { startDate, endDate };
+};
+
+// Add this utility function at the top of the file, after imports
+const generateUniqueId = (() => {
+  let counter = 0;
+  return (prefix) => `${prefix}-${counter++}`;
+})();
+
 const DailySummaryList = () => {
   const router = useRouter();
-  const { selectedInterface } = useContext(NetworkMetricsContext);
+  const context = useContext(NetworkMetricsContext);
+  
+  // Initialize state with proper date range
+  const [dateRange, setDateRange] = useState(getDateRange());
+  const [metrics, setMetrics] = useState(null);
+  const [trafficData, setTrafficData] = useState(null);
   const [dailySummaries, setDailySummaries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState({
-    startDate: subDays(new Date(), 14),
-    endDate: new Date()
-  });
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [dataSource, setDataSource] = useState('loading');
-  const [interfaceFilter, setInterfaceFilter] = useState(selectedInterface || 'all');
+  const [interfaceFilter, setInterfaceFilter] = useState(context?.selectedInterface || 'all');
   const [downloadingDates, setDownloadingDates] = useState({});
-  
-  // Add state for the modal
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedDetails, setSelectedDetails] = useState(null);
   
   // Create a ref to track if component is mounted
   const isMounted = useRef(false);
   
+  // Initialize data and start monitoring
+  useEffect(() => {
+    const initializeData = async () => {
+      try {
+        // Start monitoring if not already monitoring
+        if (context?.startMonitoring && !context.isMonitoring) {
+          await context.startMonitoring();
+        }
+        
+        // Fetch initial metrics if available
+        if (context?.fetchNetworkMetrics) {
+          await context.fetchNetworkMetrics();
+        }
+        
+        // Fetch traffic data if available
+        if (context?.fetchTrafficData) {
+          await context.fetchTrafficData();
+        }
+        
+        // Start polling if available
+        if (context?.startPolling && !context.isPolling) {
+          await context.startPolling();
+        }
+      } catch (error) {
+        console.error('Error initializing data:', error);
+      }
+    };
+
+    if (isMounted.current) {
+      initializeData();
+    }
+  }, [context]);
+
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -86,164 +442,75 @@ const DailySummaryList = () => {
     };
   }, []);
 
-  // Generate mock daily summaries for fallback
-  const generateMockDailySummaries = (days, interfaceFilter) => {
-    const summaries = [];
-    const now = new Date();
-    
-    for (let i = 0; i < days; i++) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      
-      summaries.push({
-        date: format(date, 'yyyy-MM-dd'),
-        interface: interfaceFilter === 'all' ? (i % 2 === 0 ? 'eth0' : 'wlan0') : interfaceFilter,
-        metrics: {
-          avgLatency: 20 + Math.random() * 30,
-          avgPacketLoss: 0.5 + Math.random() * 1.5,
-          downloadSpeed: 50 + Math.random() * 50,
-          uploadSpeed: 10 + Math.random() * 20,
-          totalPackets: Math.floor(10000 + Math.random() * 50000),
-          errorRate: Math.random() * 2
-        }
-      });
-    }
-    
-    return summaries;
-  };
-  
-  // Process API data into daily summaries format
-  const convertApiDataToDailySummaries = (apiData, interfaceFilter) => {
-    if (!apiData || !apiData.history) return [];
-    
-    // Group by date
-    const groupedByDate = {};
-    
-    apiData.history.forEach(item => {
-      const date = format(parseISO(item.timestamp), 'yyyy-MM-dd');
-      
-      if (!groupedByDate[date]) {
-        groupedByDate[date] = {
-          date,
-          interface: item.interface || interfaceFilter,
-          metrics: {
-            avgLatency: 0,
-            avgPacketLoss: 0,
-            downloadSpeed: 0,
-            uploadSpeed: 0,
-            totalPackets: 0,
-            errorRate: 0,
-            count: 0
-          }
-        };
-      }
-      
-      groupedByDate[date].metrics.avgLatency += item.latency || 0;
-      groupedByDate[date].metrics.avgPacketLoss += item.packet_loss || 0;
-      groupedByDate[date].metrics.downloadSpeed += item.download_speed || 0;
-      groupedByDate[date].metrics.uploadSpeed += item.upload_speed || 0;
-      groupedByDate[date].metrics.totalPackets += item.total_packets || 0;
-      groupedByDate[date].metrics.errorRate += item.error_rate || 0;
-      groupedByDate[date].metrics.count++;
-    });
-    
-    // Calculate averages
-    return Object.values(groupedByDate).map(summary => {
-      const count = summary.metrics.count || 1;
-      
-      return {
-        ...summary,
-        metrics: {
-          ...summary.metrics,
-          avgLatency: summary.metrics.avgLatency / count,
-          avgPacketLoss: summary.metrics.avgPacketLoss / count,
-          downloadSpeed: summary.metrics.downloadSpeed / count,
-          uploadSpeed: summary.metrics.uploadSpeed / count,
-          errorRate: summary.metrics.errorRate / count
-        }
-      };
-    }).sort((a, b) => b.date.localeCompare(a.date)); // Sort by date (newest first)
-  };
-  
-  // Process Supabase data into daily summaries
-  const processDailySummaries = (data, interfaceFilter) => {
-    // Group by date
-    const groupedByDate = {};
-    
-    data.forEach(item => {
-      // Skip if interface filter is applied and doesn't match
-      if (interfaceFilter !== 'all' && item.interface_name !== interfaceFilter) {
-        return;
-      }
-      
-      const date = format(parseISO(item.timestamp), 'yyyy-MM-dd');
-      
-      if (!groupedByDate[date]) {
-        groupedByDate[date] = {
-          date,
-          interface: item.interface_name,
-          metrics: {
-            avgLatency: 0,
-            avgPacketLoss: 0,
-            downloadSpeed: 0,
-            uploadSpeed: 0,
-            totalPackets: 0,
-            errorRate: 0,
-            count: 0
-          }
-        };
-      }
-      
-      groupedByDate[date].metrics.avgLatency += item.latency || 0;
-      groupedByDate[date].metrics.avgPacketLoss += item.packet_loss || 0;
-      groupedByDate[date].metrics.downloadSpeed += item.download_speed || 0;
-      groupedByDate[date].metrics.uploadSpeed += item.upload_speed || 0;
-      groupedByDate[date].metrics.count++;
-    });
-    
-    // Calculate averages
-    return Object.values(groupedByDate).map(summary => {
-      const count = summary.metrics.count || 1;
-      
-      return {
-        ...summary,
-        metrics: {
-          ...summary.metrics,
-          avgLatency: summary.metrics.avgLatency / count,
-          avgPacketLoss: summary.metrics.avgPacketLoss / count,
-          downloadSpeed: summary.metrics.downloadSpeed / count,
-          uploadSpeed: summary.metrics.uploadSpeed / count
-        }
-      };
-    }).sort((a, b) => b.date.localeCompare(a.date)); // Sort by date (newest first)
-  };
-  
-  // Effect to fetch daily summaries for the list display
+  // Load data from NetworkStateManager on mount
   useEffect(() => {
-    const fetchSummaries = async () => {
-      try {
-        setLoading(true);
-        
-        // Generate mock data for now
-        const mockSummaries = generateMockDailySummaries(14, interfaceFilter);
-        setDailySummaries(mockSummaries);
-        setDataSource('mock');
-        
-      } catch (err) {
-        console.error("[HISTORY] Failed to fetch daily summaries:", err);
-        setError("Failed to load data. Please try again later.");
-        setDataSource('error');
-        
-        // Generate mock data as fallback
-        const mockSummaries = generateMockDailySummaries(14, interfaceFilter);
-        setDailySummaries(mockSummaries);
-      } finally {
-        setLoading(false);
+    const loadStoredData = () => {
+      const storedMetrics = NetworkStateManager.getMetricsWithBOM();
+      const storedTraffic = NetworkStateManager.getTrafficWithBOM();
+      const storedHistory = NetworkStateManager.getHistoryWithBOM();
+
+      if (storedMetrics) {
+        setMetrics(storedMetrics);
       }
+      if (storedTraffic) {
+        setTrafficData(storedTraffic);
+      }
+      if (storedHistory.length > 0) {
+        setDailySummaries(storedHistory);
+      }
+      setLoading(false);
     };
 
-    fetchSummaries();
-  }, [dateRange, interfaceFilter]);
+    loadStoredData();
+  }, []);
+
+  // Effect to update daily summaries when history changes
+  useEffect(() => {
+    if (context?.history?.metricsHistory) {
+      setDailySummaries(context.history.metricsHistory);
+    }
+  }, [context?.history?.metricsHistory]);
+
+  // Update the useEffect for real-time metrics
+  useEffect(() => {
+    if (context?.isMonitoring && context?.realtimeMetrics) {
+        try {
+            const newMetrics = {
+                ...context.realtimeMetrics,
+                timestamp: new Date().toISOString()
+            };
+            setMetrics(newMetrics);
+
+            const now = new Date();
+            const newSummary = {
+                id: generateUniqueId(`${format(now, 'yyyy-MM-dd')}-${context.selectedInterface || 'all'}`),
+                date: format(now, 'yyyy-MM-dd'),
+                timestamp: now.toISOString(),
+                interface: context.selectedInterface || 'all',
+                metrics: {
+                    avgLatency: newMetrics.latency || 0,
+                    avgPacketLoss: newMetrics.packetLoss || 0,
+                    downloadSpeed: newMetrics.downloadSpeed || 0,
+                    uploadSpeed: newMetrics.uploadSpeed || 0
+                }
+            };
+
+            setDailySummaries(prev => {
+                // Remove any existing entries with the same date and interface
+                const filtered = prev.filter(s => 
+                    !(s.date === newSummary.date && s.interface === newSummary.interface)
+                );
+                return [newSummary, ...filtered];
+            });
+
+            // Save to NetworkStateManager
+            NetworkStateManager.saveMetricsWithBOM(newMetrics);
+            NetworkStateManager.saveHistoryWithBOM([newSummary, ...dailySummaries]);
+        } catch (err) {
+            console.error('Error processing real-time metrics:', err);
+        }
+    }
+  }, [context?.isMonitoring, context?.realtimeMetrics, context?.selectedInterface]);
 
   // Handle date range change
   const handleDateRangeChange = (newRange) => {
@@ -256,46 +523,52 @@ const DailySummaryList = () => {
     setInterfaceFilter(e.target.value);
   };
 
-  // Handle view details click - enhanced to show modal with more detailed data
+  // Update the handleViewDetails function
   const handleViewDetails = (date) => {
-    // Generate more detailed mock data for the selected date
+    const now = new Date();
     const detailsForDate = {
-      date: date,
-      interface: interfaceFilter,
-      metrics: [
-        { 
-          timestamp: `${date}T08:00:00`, 
-          latency: Math.round(20 + Math.random() * 30),
-          packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
-          downloadSpeed: Math.round(50 + Math.random() * 50),
-          uploadSpeed: Math.round(10 + Math.random() * 20),
-          errorRate: parseFloat((Math.random() * 1).toFixed(2))
-        },
-        { 
-          timestamp: `${date}T12:00:00`, 
-          latency: Math.round(20 + Math.random() * 30),
-          packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
-          downloadSpeed: Math.round(50 + Math.random() * 50),
-          uploadSpeed: Math.round(10 + Math.random() * 20),
-          errorRate: parseFloat((Math.random() * 1).toFixed(2))
-        },
-        { 
-          timestamp: `${date}T16:00:00`, 
-          latency: Math.round(20 + Math.random() * 30),
-          packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
-          downloadSpeed: Math.round(50 + Math.random() * 50),
-          uploadSpeed: Math.round(10 + Math.random() * 20),
-          errorRate: parseFloat((Math.random() * 1).toFixed(2))
-        },
-        { 
-          timestamp: `${date}T20:00:00`, 
-          latency: Math.round(20 + Math.random() * 30),
-          packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
-          downloadSpeed: Math.round(50 + Math.random() * 50),
-          uploadSpeed: Math.round(10 + Math.random() * 20),
-          errorRate: parseFloat((Math.random() * 1).toFixed(2))
-        }
-      ]
+        id: generateUniqueId(`${date}-${interfaceFilter}`),
+        date: date,
+        interface: interfaceFilter,
+        timestamp: now.toISOString(),
+        metrics: [
+            { 
+                id: generateUniqueId(`${date}-${interfaceFilter}-metric-1`),
+                timestamp: `${date}T08:00:00`, 
+                latency: Math.round(20 + Math.random() * 30),
+                packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
+                downloadSpeed: Math.round(50 + Math.random() * 50),
+                uploadSpeed: Math.round(10 + Math.random() * 20),
+                errorRate: parseFloat((Math.random() * 1).toFixed(2))
+            },
+            { 
+                id: generateUniqueId(`${date}-${interfaceFilter}-metric-2`),
+                timestamp: `${date}T12:00:00`, 
+                latency: Math.round(20 + Math.random() * 30),
+                packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
+                downloadSpeed: Math.round(50 + Math.random() * 50),
+                uploadSpeed: Math.round(10 + Math.random() * 20),
+                errorRate: parseFloat((Math.random() * 1).toFixed(2))
+            },
+            { 
+                id: generateUniqueId(`${date}-${interfaceFilter}-metric-3`),
+                timestamp: `${date}T16:00:00`, 
+                latency: Math.round(20 + Math.random() * 30),
+                packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
+                downloadSpeed: Math.round(50 + Math.random() * 50),
+                uploadSpeed: Math.round(10 + Math.random() * 20),
+                errorRate: parseFloat((Math.random() * 1).toFixed(2))
+            },
+            { 
+                id: generateUniqueId(`${date}-${interfaceFilter}-metric-4`),
+                timestamp: `${date}T20:00:00`, 
+                latency: Math.round(20 + Math.random() * 30),
+                packetLoss: parseFloat((Math.random() * 2).toFixed(2)),
+                downloadSpeed: Math.round(50 + Math.random() * 50),
+                uploadSpeed: Math.round(10 + Math.random() * 20),
+                errorRate: parseFloat((Math.random() * 1).toFixed(2))
+            }
+        ]
     };
     
     setSelectedDetails(detailsForDate);
@@ -313,13 +586,43 @@ const DailySummaryList = () => {
     try {
       setDownloadingDates(prev => ({ ...prev, [date]: true }));
       
-      // Mock download for now
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const packetLossData = getStoredData(STORAGE_KEYS.PACKET_LOSS);
+      const latencyData = getStoredData(STORAGE_KEYS.LATENCY);
+      const downloadData = getStoredData(STORAGE_KEYS.DOWNLOAD);
+      const uploadData = getStoredData(STORAGE_KEYS.UPLOAD);
+
+      // Filter data for the selected date
+      const dateData = {
+        packetLoss: packetLossData.filter(d => d.timestamp.startsWith(date)),
+        latency: latencyData.filter(d => d.timestamp.startsWith(date)),
+        download: downloadData.filter(d => d.timestamp.startsWith(date)),
+        upload: uploadData.filter(d => d.timestamp.startsWith(date))
+      };
+
+      // Create CSV content
+      const csvRows = ['Timestamp,Packet Loss (%),Latency (ms),Download Speed (Mbps),Upload Speed (Mbps)'];
       
-      // Create a mock CSV content
-      const csvContent = `Date,Interface,Latency (ms),Packet Loss (%),Download Speed (Mbps),Upload Speed (Mbps)\n${date},${interfaceFilter},45.2,1.2,95.6,25.3`;
+      // Combine all timestamps
+      const timestamps = new Set([
+        ...dateData.packetLoss.map(d => d.timestamp),
+        ...dateData.latency.map(d => d.timestamp),
+        ...dateData.download.map(d => d.timestamp),
+        ...dateData.upload.map(d => d.timestamp)
+      ]);
+
+      // Create rows for each timestamp
+      timestamps.forEach(timestamp => {
+        const packetLoss = dateData.packetLoss.find(d => d.timestamp === timestamp)?.value || '';
+        const latency = dateData.latency.find(d => d.timestamp === timestamp)?.value || '';
+        const download = dateData.download.find(d => d.timestamp === timestamp)?.value || '';
+        const upload = dateData.upload.find(d => d.timestamp === timestamp)?.value || '';
+        
+        csvRows.push(`${timestamp},${packetLoss},${latency},${download},${upload}`);
+      });
+
+      const csvContent = csvRows.join('\n');
       
-      // Create a blob and download it
+      // Create and download file
       const blob = new Blob([csvContent], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -340,9 +643,6 @@ const DailySummaryList = () => {
   // Add the modal component with enhanced details
   const DetailsModal = () => {
     if (!showDetailsModal || !selectedDetails) return null;
-    
-    // Only render on client side
-    if (typeof window === 'undefined') return null;
     
     return createPortal(
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -428,8 +728,8 @@ const DailySummaryList = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {selectedDetails.metrics.map((metric, index) => (
-                    <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  {selectedDetails.metrics.map((metric) => (
+                    <tr key={metric.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(metric.timestamp).toLocaleTimeString()}
                       </td>
@@ -475,8 +775,177 @@ const DailySummaryList = () => {
     );
   };
 
+  // Add function to handle data export
+  const handleExportData = () => {
+    const exportData = {
+      metrics: StorageManager.getMetricsWithBOM(),
+      traffic: StorageManager.getTrafficWithBOM(),
+      history: StorageManager.getHistoryWithBOM(),
+      exportDate: new Date().toISOString()
+    };
+
+    const data = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `network-data-export-${new Date().toISOString()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Add function to handle data import
+  const handleImportData = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (data.metrics) StorageManager.saveMetricsWithBOM(data.metrics);
+        if (data.traffic) StorageManager.saveTrafficWithBOM(data.traffic);
+        if (data.history) StorageManager.saveHistoryWithBOM(data.history);
+        
+        // Reload the page to reflect changes
+        window.location.reload();
+      } catch (error) {
+        console.error('Error importing data:', error);
+        alert('Failed to import data. Please check the file format.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Add export/import buttons to the UI
+  const renderDataControls = () => (
+    <div className="flex justify-end space-x-4 mb-4">
+      <button
+        onClick={handleExportData}
+        className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+      >
+        Export Data
+      </button>
+      <label className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 cursor-pointer">
+        Import Data
+        <input
+          type="file"
+          accept=".json"
+          onChange={handleImportData}
+          className="hidden"
+        />
+      </label>
+      <button
+        onClick={() => {
+          if (window.confirm('Are you sure you want to clear all data?')) {
+            StorageManager.clearAllData();
+            window.location.reload();
+          }
+        }}
+        className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+      >
+        Clear Data
+      </button>
+    </div>
+  );
+
+  // Filter data based on date range and interface
+  const filteredData = dailySummaries.filter(entry => {
+    const dateMatch = entry.date >= format(dateRange.startDate, 'yyyy-MM-dd') && entry.date <= format(dateRange.endDate, 'yyyy-MM-dd');
+    const interfaceMatch = interfaceFilter === 'all' || entry.interface === interfaceFilter;
+    return dateMatch && interfaceMatch;
+  });
+
+  // Add this section before the return statement
+  const prepareChartData = () => {
+    if (!filteredData || filteredData.length === 0) {
+      return [];
+    }
+
+    // Sort data by timestamp and ensure all entries have required fields
+    const sortedData = [...filteredData]
+      .filter(entry => entry && entry.timestamp && entry.metrics)
+      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    
+    // Take the last 20 entries for better visualization
+    return sortedData.slice(-20);
+  };
+
+  const chartData = prepareChartData();
+
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
+      {renderDataControls()}
+      
+      {/* Error Display */}
+      {context?.error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+          <div className="flex items-start">
+            <FaExclamationTriangle className="text-red-500 mt-1 mr-3" />
+            <div>
+              <h3 className="text-red-800 font-medium">Error: {context.error.context}</h3>
+              <p className="text-red-700 mt-1">{context.error.message}</p>
+              <p className="text-red-600 text-sm mt-1">
+                {new Date(context.error.timestamp).toLocaleString()}
+              </p>
+              <button
+                onClick={context.clearError}
+                className="mt-2 text-sm text-red-600 hover:text-red-800"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Metrics Display */}
+      {context?.isMonitoring && context?.realtimeMetrics && (
+        <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <h3 className="text-sm font-medium text-blue-800">Download Speed</h3>
+            <p className="text-2xl font-bold text-blue-600">
+              {context.realtimeMetrics.downloadSpeed.toFixed(2)}
+              <span className="text-sm font-normal ml-1">Mbps</span>
+            </p>
+          </div>
+          
+          <div className="bg-green-50 p-4 rounded-lg">
+            <h3 className="text-sm font-medium text-green-800">Upload Speed</h3>
+            <p className="text-2xl font-bold text-green-600">
+              {context.realtimeMetrics.uploadSpeed.toFixed(2)}
+              <span className="text-sm font-normal ml-1">Mbps</span>
+            </p>
+          </div>
+          
+          <div className="bg-yellow-50 p-4 rounded-lg">
+            <h3 className="text-sm font-medium text-yellow-800">Latency</h3>
+            <p className="text-2xl font-bold text-yellow-600">
+              {context.realtimeMetrics.latency.toFixed(1)}
+              <span className="text-sm font-normal ml-1">ms</span>
+            </p>
+          </div>
+          
+          <div className="bg-red-50 p-4 rounded-lg">
+            <h3 className="text-sm font-medium text-red-800">Packet Loss</h3>
+            <p className="text-2xl font-bold text-red-600">
+              {context.realtimeMetrics.packetLoss.toFixed(2)}
+              <span className="text-sm font-normal ml-1">%</span>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Monitoring Status */}
+      {context?.isMonitoring && (
+        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md text-green-700 flex items-center">
+          <div className="animate-pulse h-3 w-3 bg-green-500 rounded-full mr-2"></div>
+          <span>Real-time monitoring active</span>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <h2 className="text-xl font-semibold text-gray-800 mb-4 md:mb-0">Network Data History</h2>
         
@@ -527,21 +996,10 @@ const DailySummaryList = () => {
       {/* Data Source Indicator */}
       <div className="mb-4">
         <span className="text-xs font-medium px-2 py-1 rounded-full bg-gray-100 text-gray-600">
-          {dataSource === 'supabase' && 'Data from database'}
-          {dataSource === 'api' && 'Data from system API'}
-          {dataSource === 'mock' && 'Sample data'}
-          {dataSource === 'loading' && 'Loading data...'}
-          {dataSource === 'error' && 'Error loading data'}
+          {context?.isMonitoring ? 'Real-time monitoring active' : 
+           dailySummaries.length > 0 ? 'Data from storage' : 'No data available'}
         </span>
       </div>
-      
-      {/* Error Message */}
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-red-700 flex items-center">
-          <FaExclamationTriangle className="mr-2" />
-          {error}
-        </div>
-      )}
       
       {/* Loading State */}
       {loading ? (
@@ -554,79 +1012,69 @@ const DailySummaryList = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Interface
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Avg. Latency
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Packet Loss
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Download Speed
-                </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Upload Speed
-                </th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interface</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg. Latency</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Packet Loss</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Download Speed</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Upload Speed</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {dailySummaries.map((summary, index) => (
-                <tr key={`${summary.date}-${summary.interface}`} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {summary.date}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {summary.interface}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {summary.metrics.avgLatency.toFixed(1)} ms
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {summary.metrics.avgPacketLoss.toFixed(2)}%
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {summary.metrics.downloadSpeed.toFixed(1)} Mbps
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {summary.metrics.uploadSpeed.toFixed(1)} Mbps
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleViewDetails(summary.date)}
-                      className="text-blue-600 hover:text-blue-900 mr-4"
-                    >
-                      View Details
-                    </button>
-                    <button
-                      onClick={() => handleDownload(summary.date)}
-                      className="text-green-600 hover:text-green-900 inline-flex items-center"
-                      disabled={downloadingDates[summary.date]}
-                    >
-                      {downloadingDates[summary.date] ? (
-                        <>
-                          <span className="animate-spin h-4 w-4 mr-2 border-t-2 border-b-2 border-green-600 rounded-full"></span>
-                          Downloading...
-                        </>
-                      ) : (
-                        <>
-                          <FaDownload className="mr-1" /> Download
-                        </>
-                      )}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {filteredData.map((entry) => {
+                // Use the existing ID or generate a new one if missing
+                const entryId = entry.id || generateUniqueId(`${entry.date}-${entry.interface}`);
+                return (
+                  <tr key={entryId} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {entry.date}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {entry.interface}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {entry.metrics.avgLatency.toFixed(1)} ms
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {entry.metrics.avgPacketLoss.toFixed(2)}%
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {entry.metrics.downloadSpeed.toFixed(2)} Mbps
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {entry.metrics.uploadSpeed.toFixed(2)} Mbps
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <button
+                        onClick={() => handleViewDetails(entry.date)}
+                        className="text-blue-600 hover:text-blue-900 mr-4"
+                      >
+                        View Details
+                      </button>
+                      <button
+                        onClick={() => handleDownload(entry.date)}
+                        className="text-green-600 hover:text-green-900 inline-flex items-center"
+                        disabled={downloadingDates[entry.date]}
+                      >
+                        {downloadingDates[entry.date] ? (
+                          <>
+                            <span className="animate-spin h-4 w-4 mr-2 border-t-2 border-b-2 border-green-600 rounded-full"></span>
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <FaDownload className="mr-1" /> Download
+                          </>
+                        )}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               
-              {dailySummaries.length === 0 && !loading && (
-                <tr>
+              {filteredData.length === 0 && !loading && (
+                <tr key="no-data">
                   <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
                     No data available for the selected date range and interface.
                   </td>
@@ -636,6 +1084,38 @@ const DailySummaryList = () => {
           </table>
         </div>
       )}
+
+      {/* Update the Charts Section */}
+      <div className="mt-8">
+        <h2 className="text-xl font-semibold mb-4">Network Metrics Visualization</h2>
+        
+        {/* Combined Metrics Chart */}
+        <div className="mb-8">
+          <h3 className="text-lg font-medium mb-2">Combined Metrics</h3>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <CombinedMetricsChart data={chartData} />
+          </div>
+        </div>
+        
+        {/* Individual Metrics Charts */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="text-lg font-medium mb-2">Download Speed</h3>
+            <MetricsChart data={chartData} type="speed" />
+          </div>
+          
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="text-lg font-medium mb-2">Latency</h3>
+            <MetricsChart data={chartData} type="latency" />
+          </div>
+          
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="text-lg font-medium mb-2">Packet Loss</h3>
+            <MetricsChart data={chartData} type="packetLoss" />
+          </div>
+        </div>
+      </div>
+
       {isMounted.current && showDetailsModal && selectedDetails && <DetailsModal />}
     </div>
   );
